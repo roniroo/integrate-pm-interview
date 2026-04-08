@@ -23,7 +23,7 @@
       color: white;
       padding: 11px 24px;
       font-size: 13px;
-      font-weight: 500;
+      font-weight: 50f0;
       display: none;
       align-items: center;
       gap: 10px;
@@ -199,6 +199,18 @@
     }
     .deadline-urgent { color: #b91c1c; font-weight: 700; }
     .machine-offline { color: #ef4444; }
+
+    .suggested {
+      display: block;
+      margin-top: 3px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #1e6fcf;
+      line-height: 1.3;
+    }
+    .suggested-risk {
+      color: #c05c00;
+    }
 
     /* ─── RECOVERY PANEL (fixed right drawer) ─── */
     #recoveryPanel {
@@ -384,7 +396,7 @@
 <header class="header">
   <div class="header-left">
     <div class="logo">RA</div>
-    <span class="header-title">RecoverAI</span>
+    <span class="header-title">RecoverAI by Meridian</span>
     <div class="header-divider"></div>
     <span class="header-context">Production Floor · Bay 3 · Shift A</span>
   </div>
@@ -434,8 +446,10 @@
           <th>Part Name</th>
           <th>Priority</th>
           <th>Deadline</th>
+          <th>Est. Finish</th>
           <th>Stage</th>
           <th>Assigned</th>
+          <th>Sub-Assembly Of</th>
           <th>Status</th>
         </tr>
       </thead>
@@ -512,14 +526,14 @@
 
   // ── JOB DATA ───────────────────────────────────────────────────────────────
   const JOBS = [
-    { id:'WO-1042', part:'Actuator Housing',    pri:'Critical', deadline:'Apr 10', stage:'Manufacturing', machine:'CNC 1',          status:'At Risk'  },
-    { id:'WO-1043', part:'Guidance Bracket',     pri:'High',     deadline:'Apr 12', stage:'Manufacturing', machine:'CNC 1',          status:'On Track' },
-    { id:'WO-1044', part:'Servo Mount Plate',    pri:'Standard', deadline:'Apr 15', stage:'Testing',       machine:'Test Station 1', status:'On Track' },
-    { id:'WO-1045', part:'Inertial Nav Frame',   pri:'High',     deadline:'Apr 14', stage:'Manufacturing', machine:'CNC 1',          status:'On Track' },
-    { id:'WO-1046', part:'Gimbal Ring Assembly', pri:'Critical', deadline:'Apr 15', stage:'Testing',       machine:'Test Station 2', status:'On Track' },
-    { id:'WO-1047', part:'Torque Arm',           pri:'High',     deadline:'Apr 15', stage:'Testing',       machine:'Test Station 1', status:'On Track' },
-    { id:'WO-1048', part:'Pressure Valve Block', pri:'Standard', deadline:'Apr 16', stage:'Pack & Ship',   machine:'Pack & Ship',   status:'On Track' },
-    { id:'WO-1049', part:'Pivot Housing',        pri:'Standard', deadline:'Apr 17', stage:'Queue',         machine:'—',             status:'On Track' },
+    { id:'WO-1042', part:'Actuator Housing',    pri:'Critical', deadline:'Apr 10', estFinish:'Apr 9',  stage:'Manufacturing', machine:'CNC 1',          status:'At Risk',  parentWO:null },
+    { id:'WO-1043', part:'Guidance Bracket',     pri:'High',     deadline:'Apr 12', estFinish:'Apr 11', stage:'Manufacturing', machine:'CNC 1',          status:'On Track', parentWO:'WO-1046' },
+    { id:'WO-1044', part:'Servo Mount Plate',    pri:'Standard', deadline:'Apr 15', estFinish:'Apr 14', stage:'Testing',       machine:'Test Station 1', status:'On Track', parentWO:'WO-1048' },
+    { id:'WO-1045', part:'Inertial Nav Frame',   pri:'High',     deadline:'Apr 14', estFinish:'Apr 13', stage:'Manufacturing', machine:'CNC 1',          status:'On Track', parentWO:null },
+    { id:'WO-1046', part:'Gimbal Ring Assembly', pri:'Critical', deadline:'Apr 15', estFinish:'Apr 14', stage:'Testing',       machine:'Test Station 2', status:'On Track', parentWO:null },
+    { id:'WO-1047', part:'Torque Arm',           pri:'High',     deadline:'Apr 15', estFinish:'Apr 14', stage:'Testing',       machine:'Test Station 1', status:'On Track', parentWO:null },
+    { id:'WO-1048', part:'Pressure Valve Block', pri:'Standard', deadline:'Apr 16', estFinish:'Apr 15', stage:'Pack & Ship',   machine:'Pack & Ship',    status:'On Track', parentWO:null },
+    { id:'WO-1049', part:'Pivot Housing',        pri:'Standard', deadline:'Apr 17', estFinish:'Apr 16', stage:'Queue',         machine:'—',              status:'On Track', parentWO:null },
   ];
 
   // ── SCENARIOS ──────────────────────────────────────────────────────────────
@@ -528,19 +542,20 @@
       headerStatus: 'CNC Machine 1 — Offline',
       resourceOffline: 'res-cnc1',
       resourceLabel: 'CNC Machine 1',
-      affected: new Set(['WO-1042','WO-1043','WO-1045','WO-1049']),
+      affected: new Set(['WO-1042','WO-1043','WO-1045','WO-1046','WO-1049']),
       // How affected jobs look in the table during state 2
       disrupted: {
         'WO-1042': { machineHtml: '<span class="machine-offline">CNC 1 ↓</span>' },
         'WO-1043': { machineHtml: '<span class="machine-offline">CNC 1 ↓</span>' },
         'WO-1045': { machineHtml: '<span class="machine-offline">CNC 1 ↓</span>' },
       },
-      aiSummary: 'CNC Machine 1 is offline. <strong>4 jobs affected.</strong> Suggested recovery re-sequences to CNC Machine 2 where capacity allows. <strong>2 jobs flagged at deadline risk.</strong> Pack &amp; Ship bottleneck risk detected — 3 jobs converging on Apr 15.',
+      aiSummary: 'CNC Machine 1 is offline. <strong>4 jobs directly affected, 1 downstream dependency impacted.</strong> Suggested recovery re-sequences to CNC Machine 2 where capacity allows. <strong>2 jobs flagged at deadline risk.</strong> WO-1046 (Gimbal Ring Assembly) at risk — depends on sub-assembly WO-1043 which is delayed. Pack &amp; Ship bottleneck risk detected — 3 jobs converging on Apr 15.',
       diffRows: [
         { id:'WO-1042', part:'Actuator Housing',  was:'CNC 1', now:'CNC 2',   reason:'Scheduled first on CNC 2 — Critical priority, deadline Apr 10 (3 days). Immediate start required.', risk:false, badge:'s-atrisk',  badgeText:'At Risk'  },
         { id:'WO-1043', part:'Guidance Bracket',   was:'CNC 1', now:'CNC 2',   reason:'Moved earlier in queue — High priority, deadline Apr 12. Earliest available slot on CNC 2 after WO-1042.', risk:false, badge:'s-ontrack', badgeText:'On Track' },
-        { id:'WO-1045', part:'Inertial Nav Frame', was:'CNC 1', now:'CNC 2',   reason:'WARNING:At risk — CNC 2 queue constrained after WO-1042 and WO-1043. Apr 14 deadline may require overtime to meet.', risk:true, badge:'s-atrisk',  badgeText:'At Risk'  },
-        { id:'WO-1049', part:'Pivot Housing',      was:'Queue',  now:'On Hold', reason:'WARNING:No CNC capacity available — CNC 2 full through Apr 14. Standard priority; held until CNC 1 recovery or supervisor escalation.', risk:true, badge:'s-held', badgeText:'Held' },
+        { id:'WO-1045', part:'Inertial Nav Frame', was:'CNC 1', now:'CNC 2',   reason:'WARNING: At risk — CNC 2 queue constrained after WO-1042 and WO-1043. Apr 14 deadline may require overtime to meet.', risk:true, badge:'s-atrisk',  badgeText:'At Risk'  },
+        { id:'WO-1046', part:'Gimbal Ring Assembly', was:'Est. Apr 14', now:'Est. Apr 15', reason:'WARNING: Downstream dependency — sub-assembly WO-1043 (Guidance Bracket) delayed on CNC 2. Testing completion pushed back.', risk:true, badge:'s-atrisk', badgeText:'At Risk' },
+        { id:'WO-1049', part:'Pivot Housing',      was:'Queue',  now:'On Hold', reason:'WARNING: No CNC capacity available — CNC 2 full through Apr 14. Standard priority; held until CNC 1 recovery or supervisor escalation.', risk:true, badge:'s-held', badgeText:'Held' },
       ],
       bottleneck: {
         title: 'Pack &amp; Ship Bottleneck Risk — Apr 15',
@@ -549,10 +564,18 @@
         note: 'Review sequencing to stagger Pack &amp; Ship arrivals, or flag for supervisor review before committing.',
       },
       committed: {
-        'WO-1042': { machine:'CNC 2',  status:'At Risk'  },
-        'WO-1043': { machine:'CNC 2',  status:'On Track' },
-        'WO-1045': { machine:'CNC 2',  status:'At Risk'  },
-        'WO-1049': { machine:'—',      status:'At Risk'  },
+        'WO-1042': { machine:'CNC 2',  status:'At Risk',  estFinish:'Apr 10' },
+        'WO-1043': { machine:'CNC 2',  status:'On Track', estFinish:'Apr 13' },
+        'WO-1045': { machine:'CNC 2',  status:'At Risk',  estFinish:'Apr 15' },
+        'WO-1046': { status:'At Risk', estFinish:'Apr 15' },
+        'WO-1049': { machine:'—',      status:'At Risk',  estFinish:'TBD'    },
+      },
+      suggestions: {
+        'WO-1042': { machine:'Suggested: CNC 2', estFinish:'Suggested: Apr 10', status:'At Risk' },
+        'WO-1043': { machine:'Suggested: CNC 2', estFinish:'Suggested: Apr 13' },
+        'WO-1045': { machine:'Suggested: CNC 2', estFinish:'Suggested: Apr 15', status:'At Risk', risk:true },
+        'WO-1046': { estFinish:'Suggested: Apr 15', status:'At Risk', risk:true },
+        'WO-1049': { machine:'Suggested: On Hold', estFinish:'Suggested: TBD', status:'Held', risk:true },
       },
       committedMeta: '8 jobs \u00a0·\u00a0 Recovery committed 09:14 \u00a0·\u00a0 CNC 2 workaround active',
       committedResourceHtml: '<div class="res-dot"></div>CNC Machine 1 <span style="font-size:11px;color:#e88;margin-left:4px;">(Offline · Workaround Active)</span>',
@@ -578,8 +601,12 @@
         note: 'Review sequencing to stagger Pack &amp; Ship arrivals, or flag for supervisor review before committing.',
       },
       committed: {
-        'WO-1045': { machine:'—', status:'At Risk', stage:'On Hold' },
-        'WO-1049': { machine:'CNC 1', status:'On Track' },
+        'WO-1045': { machine:'—', status:'At Risk', stage:'On Hold', estFinish:'TBD' },
+        'WO-1049': { machine:'CNC 1', status:'On Track', estFinish:'Apr 16' },
+      },
+      suggestions: {
+        'WO-1045': { machine:'Suggested: On Hold', stage:'Suggested: Held', estFinish:'Suggested: TBD', status:'Held', risk:true },
+        'WO-1049': { machine:'Suggested: CNC 1', stage:'Suggested: Manufacturing', estFinish:'Suggested: Apr 16' },
       },
       committedMeta: '8 jobs \u00a0·\u00a0 Recovery committed 09:14 \u00a0·\u00a0 WO-1045 on hold, queue re-sequenced',
       committedResourceHtml: null,
@@ -604,7 +631,10 @@
         note: 'WO-1047 will arrive at Pack &amp; Ship later than originally scheduled. Verify updated timeline after rework completes.',
       },
       committed: {
-        'WO-1047': { machine:'CNC 2', status:'At Risk', stage:'Mfg (Rework)' },
+        'WO-1047': { machine:'CNC 2', status:'At Risk', stage:'Mfg (Rework)', estFinish:'Apr 17' },
+      },
+      suggestions: {
+        'WO-1047': { machine:'Suggested: CNC 2 (Rework)', stage:'Suggested: Mfg (Rework)', estFinish:'Suggested: Apr 17', status:'At Risk', risk:true },
       },
       committedMeta: '8 jobs \u00a0·\u00a0 Recovery committed 09:14 \u00a0·\u00a0 WO-1047 rework assigned to CNC 2',
       committedResourceHtml: null,
@@ -622,40 +652,74 @@
       const tr = document.createElement('tr');
       const isAffected = sc && sc.affected.has(job.id);
 
-      let machine = job.machine;
-      let status  = job.status;
-      let stage   = job.stage;
+      let machine   = job.machine;
+      let status    = job.status;
+      let stage     = job.stage;
+      let estFinish = job.estFinish;
 
       // State 4: apply committed overrides
       if (appState === 4 && sc && sc.committed[job.id]) {
         const c = sc.committed[job.id];
-        machine = c.machine;
-        status  = c.status;
-        if (c.stage) stage = c.stage;
+        if (c.machine)   machine   = c.machine;
+        if (c.status)    status    = c.status;
+        if (c.stage)     stage     = c.stage;
+        if (c.estFinish) estFinish = c.estFinish;
       }
 
       // Row highlight
       if ((appState === 2 || appState === 3) && isAffected) tr.className = 'row-affected';
       if (appState === 4 && isAffected) tr.className = 'row-committed';
 
+      // Inline suggestions (state 2 & 3 only)
+      var sug = (appState === 2 || appState === 3) && sc && sc.suggestions[job.id] ? sc.suggestions[job.id] : null;
+      var sugClass = sug && sug.risk ? 'suggested suggested-risk' : 'suggested';
+
       // Machine cell
-      let machineCell;
+      var machineCell;
       if ((appState === 2 || appState === 3) && sc && sc.disrupted[job.id]) {
         machineCell = sc.disrupted[job.id].machineHtml;
       } else {
         machineCell = '<span style="font-size:12px;color:#5a6a7d;">' + machine + '</span>';
       }
+      if (sug && sug.machine) {
+        machineCell += '<span class="' + sugClass + '">' + sug.machine + '</span>';
+      }
 
-      const dlClass = job.deadline === 'Apr 10' ? 'deadline-urgent' : '';
+      // Stage cell
+      var stageCell = '<span style="font-size:12px;color:#5a6a7d;">' + stage + '</span>';
+      if (sug && sug.stage) {
+        stageCell += '<span class="' + sugClass + '">' + sug.stage + '</span>';
+      }
+
+      // Est. Finish cell
+      var finishCell = '<span style="font-size:13px;">' + estFinish + '</span>';
+      if (sug && sug.estFinish) {
+        finishCell += '<span class="' + sugClass + '">' + sug.estFinish + '</span>';
+      }
+
+      // Status cell
+      var statusCell = statusBadge(status);
+      if (sug && sug.status && sug.status !== status) {
+        statusCell += '<span class="' + sugClass + '">Suggested: ' + sug.status + '</span>';
+      }
+
+      // Sub-Assembly Of cell
+      var parentCell = job.parentWO
+        ? '<span class="job-id">' + job.parentWO + '</span>'
+        : '<span style="font-size:12px;color:#c0c8d4;">—</span>';
+
+      var dlClass = job.deadline === 'Apr 10' ? 'deadline-urgent' : '';
 
       tr.innerHTML =
         '<td><span class="job-id">' + job.id + '</span></td>' +
         '<td>' + job.part + '</td>' +
         '<td>' + priBadge(job.pri) + '</td>' +
         '<td><span class="' + dlClass + '" style="font-size:13px;">' + job.deadline + '</span></td>' +
-        '<td style="font-size:12px;color:#5a6a7d;">' + stage + '</td>' +
+        '<td>' + finishCell + '</td>' +
+        '<td>' + stageCell + '</td>' +
         '<td>' + machineCell + '</td>' +
-        '<td>' + statusBadge(status) + '</td>';
+        '<td>' + parentCell + '</td>' +
+        '<td>' + statusCell + '</td>';
       tbody.appendChild(tr);
     });
   }
