@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>RecoverAI — Production Scheduling</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #eef1f6;
+      color: #1a2332;
+      min-height: 100vh;
+    }
+
+    /* ─── SUCCESS BANNER ─── */
+    #successBanner {
+      position: fixed;
+      top: 60px;
+      left: 0; right: 0;
+      z-index: 200;
+      background: #145a32;
+      color: white;
+      padding: 11px 24px;
+      font-size: 13px;
+      font-weight: 500;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+    }
+    #successBanner.visible { display: flex; }
+    #successBanner .check-icon {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; flex-shrink: 0;
+    }
+    #successBanner .dismiss-btn {
+      margin-left: auto; flex-shrink: 0;
+      background: rgba(255,255,255,0.15); border: none; color: white;
+      font-size: 16px; cursor: pointer; padding: 4px 10px; line-height: 1;
+      border-radius: 4px;
+    }
+    #successBanner .dismiss-btn:hover { background: rgba(255,255,255,0.3); }
+
+    /* ─── HEADER ─── */
+    .header {
+      position: sticky; top: 0; z-index: 100;
+      background: #0d2240;
+      height: 60px;
+      padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 32px; height: 32px; border-radius: 6px;
+      background: linear-gradient(135deg, #1e6fcf, #1a5aaa);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 800; color: white;
+      letter-spacing: -1px;
+    }
+    .header-title { font-size: 16px; font-weight: 700; color: white; letter-spacing: -0.3px; }
+    .header-divider {
+      width: 1px; height: 20px; background: #2a4060; margin: 0 12px;
+    }
+    .header-context { font-size: 12px; color: #7a9bbd; }
+    .header-right { display: flex; align-items: center; gap: 12px; }
+
+    /* Disruption indicator in header */
+    #disruptionStatus {
+      display: none; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: 500; color: #fc8181;
+    }
+    #disruptionStatus.visible { display: flex; }
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #fc5050;
+      box-shadow: 0 0 0 0 rgba(252, 80, 80, 0.4);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(252,80,80,0.5); }
+      70%  { box-shadow: 0 0 0 6px rgba(252,80,80,0); }
+      100% { box-shadow: 0 0 0 0 rgba(252,80,80,0); }
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 7px 16px; border: none; border-radius: 5px;
+      font-size: 13px; font-weight: 500; cursor: pointer;
+      transition: all 0.15s ease; line-height: 1.4;
+    }
+    .btn-danger  { background: #c0392b; color: white; }
+    .btn-danger:hover  { background: #e74c3c; }
+    .btn-secondary { background: #2a4060; color: #adc4de; border: 1px solid #3a5070; }
+    .btn-secondary:hover { background: #344f70; color: white; }
+
+    /* ─── MAIN WRAPPER ─── */
+    .main {
+      padding: 20px 24px;
+      max-width: 1600px;
+      margin: 0 auto;
+      transition: padding-right 0.38s cubic-bezier(0.16,1,0.3,1);
+    }
+    .main.panel-open { padding-right: 520px; }
+
+    /* ─── RESOURCE BAR ─── */
+    .resource-bar {
+      background: white;
+      border: 1px solid #d8e0ec;
+      border-radius: 8px;
+      padding: 12px 18px;
+      margin-bottom: 14px;
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    }
+    .res-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.9px; color: #8090a0; margin-right: 10px;
+    }
+    .res-pill {
+      display: flex; align-items: center; gap: 5px;
+      padding: 4px 11px; border-radius: 20px;
+      font-size: 12px; font-weight: 500;
+      border: 1px solid transparent;
+      transition: all 0.4s ease;
+    }
+    .res-pill.online  { background: #edfaf4; border-color: #a7e3c0; color: #175f35; }
+    .res-pill.offline { background: #fdf2f2; border-color: #f5aaaa; color: #9b1515; }
+    .res-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      transition: background 0.4s;
+    }
+    .online  .res-dot { background: #22c55e; box-shadow: 0 0 4px rgba(34,197,94,0.5); }
+    .offline .res-dot { background: #ef4444; box-shadow: 0 0 4px rgba(239,68,68,0.5); }
+    .no-redundancy {
+      font-size: 10px; font-weight: 700;
+      background: #fef3cd; color: #856404;
+      border: 1px solid #ffc107;
+      border-radius: 3px; padding: 1px 5px;
+      margin-left: 4px;
+    }
+
+    /* ─── TABLE CARD ─── */
+    .table-card {
+      background: white;
+      border: 1px solid #d8e0ec;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .table-card-hdr {
+      padding: 13px 18px;
+      border-bottom: 1px solid #edf1f7;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .table-card-title { font-size: 14px; font-weight: 600; color: #1a2332; }
+    .table-card-meta  { font-size: 12px; color: #8090a0; }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      background: #f6f9fc;
+      padding: 9px 16px;
+      text-align: left;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.7px; color: #7a8a9b;
+      border-bottom: 1px solid #edf1f7;
+    }
+    tbody td {
+      padding: 11px 16px;
+      font-size: 13px; color: #2c3a4d;
+      border-bottom: 1px solid #f2f5f9;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #fafbfd; }
+
+    /* Row states */
+    tr.row-affected td       { background: #fffbf0; border-bottom-color: #fde8b0; }
+    tr.row-affected:hover td { background: #fff7e0; }
+    tr.row-committed td       { background: #f0f6ff; border-bottom-color: #bfdbfe; }
+    tr.row-committed:hover td { background: #e8f1fc; }
+
+    /* ─── BADGES ─── */
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 2px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 600; white-space: nowrap;
+    }
+    .p-critical { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+    .p-high     { background: #fff7ed; color: #92400e; border: 1px solid #fed7aa; }
+    .p-standard { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+    .s-ontrack  { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+    .s-atrisk   { background: #fff3cd; color: #856404; border: 1px solid #fcd34d; }
+    .s-held     { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+
+    .job-id {
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 12px; font-weight: 600; color: #3d5a80;
+    }
+    .deadline-urgent { color: #b91c1c; font-weight: 700; }
+    .machine-offline { color: #ef4444; }
+
+    /* ─── RECOVERY PANEL (fixed right drawer) ─── */
+    #recoveryPanel {
+      position: fixed;
+      top: 60px; right: 0; bottom: 0;
+      width: 500px;
+      background: #eef1f6;
+      border-left: 1px solid #cdd6e8;
+      box-shadow: -6px 0 24px rgba(0,0,0,0.12);
+      overflow-y: auto;
+      padding: 16px;
+      transform: translateX(100%);
+      transition: transform 0.38s cubic-bezier(0.16,1,0.3,1);
+      z-index: 90;
+    }
+    #recoveryPanel.open { transform: translateX(0); }
+
+    /* Panel cards */
+    .panel-card {
+      background: white;
+      border: 1px solid #d8e0ec;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .panel-card-hdr {
+      padding: 11px 14px;
+      border-bottom: 1px solid #edf1f7;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .panel-card-title { font-size: 13px; font-weight: 600; color: #1a2332; }
+
+    /* AI summary block */
+    .ai-summary {
+      padding: 12px 14px;
+      background: #f5f8ff;
+      border-bottom: 1px solid #dde8f7;
+    }
+    .ai-tag {
+      font-size: 10px; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.9px; color: #1e6fcf; margin-bottom: 5px;
+    }
+    .ai-text { font-size: 13px; line-height: 1.55; color: #2c3a4d; }
+    .ai-text strong { color: #1a2332; }
+
+    /* Diff table */
+    .diff-wrap { overflow-x: auto; }
+    .diff-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .diff-tbl th {
+      background: #f6f9fc;
+      padding: 7px 12px; font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.7px; color: #7a8a9b;
+      border-bottom: 1px solid #edf1f7;
+    }
+    .diff-tbl td { padding: 9px 12px; border-bottom: 1px solid #f2f5f9; }
+    .diff-tbl tr:last-child td { border-bottom: none; }
+    .diff-tbl tr.changed    td { background: #fffdf0; }
+    .diff-tbl tr.risk       td { background: #fff8f8; }
+
+    .was { color: #94a3b8; text-decoration: line-through; font-size: 11px; }
+    .now { color: #1a2332; font-weight: 600; }
+    .arr { color: #94a3b8; margin: 0 3px; font-size: 11px; }
+    .reason { font-size: 11px; color: #5a6a7d; font-style: italic; margin-top: 2px; line-height: 1.4; }
+    .reason.risk-text { color: #c05c00; }
+
+    /* ─── BOTTLENECK CARD ─── */
+    .bottleneck-card {
+      border: 2px solid #d97706;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 12px;
+      background: white;
+    }
+    .bottleneck-hdr {
+      background: #fef3c7;
+      padding: 11px 14px;
+      border-bottom: 1px solid #fde68a;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .btl-icon { font-size: 16px; }
+    .btl-title { font-size: 13px; font-weight: 800; color: #92400e; }
+    .btl-subtitle { font-size: 11px; color: #a05a00; margin-top: 1px; font-weight: 500; }
+    .bottleneck-body { padding: 13px 14px; }
+    .btl-text { font-size: 13px; color: #4a3010; line-height: 1.55; }
+    .btl-note {
+      margin-top: 10px;
+      padding: 8px 11px;
+      background: #fff3cd;
+      border-left: 3px solid #d97706;
+      border-radius: 4px;
+      font-size: 12px; font-weight: 600; color: #92400e;
+      line-height: 1.4;
+    }
+    .no-redundancy-warning {
+      display: inline-flex; align-items: center; gap: 4px;
+      margin-top: 8px;
+      padding: 4px 9px;
+      background: #fde8e8; color: #b91c1c;
+      border: 1px solid #fca5a5; border-radius: 4px;
+      font-size: 11px; font-weight: 700;
+    }
+
+    /* ─── ACTION BUTTONS (in panel) ─── */
+    .action-hint { font-size: 11px; color: #8090a0; margin-bottom: 10px; line-height: 1.4; }
+    .action-row  { display: flex; gap: 8px; }
+    .act-accept {
+      flex: 1; padding: 10px;
+      background: #1e6fcf; color: white;
+      border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 700;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .act-accept:hover { background: #1557a8; }
+    .act-modify, .act-dismiss {
+      padding: 10px 14px;
+      background: white; color: #2c3a4d;
+      border: 1px solid #d8e0ec; border-radius: 6px;
+      font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .act-modify:hover, .act-dismiss:hover { background: #f6f9fc; }
+    .act-dismiss { color: #8090a0; }
+
+    /* ─── DISRUPTION MODAL ─── */
+    #modalOverlay {
+      position: fixed; inset: 0; z-index: 500;
+      background: rgba(10, 20, 40, 0.55);
+      backdrop-filter: blur(3px);
+      display: flex; align-items: center; justify-content: center;
+    }
+    #modalOverlay.hidden { display: none; }
+    .modal {
+      background: white;
+      border-radius: 10px; width: 480px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+    .modal-hdr {
+      padding: 20px 22px 16px;
+      border-bottom: 1px solid #edf1f7;
+    }
+    .modal-title    { font-size: 16px; font-weight: 700; color: #1a2332; }
+    .modal-subtitle { font-size: 13px; color: #7a8a9b; margin-top: 3px; }
+    .modal-body { padding: 14px 22px; }
+    .dis-opt {
+      padding: 13px 15px; border-radius: 7px;
+      border: 2px solid #edf1f7; margin-bottom: 10px;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .dis-opt:hover    { border-color: #93c5fd; background: #f0f7ff; }
+    .dis-opt.selected { border-color: #1e6fcf; background: #f0f7ff; }
+    .dis-opt-title { font-size: 13px; font-weight: 600; color: #1a2332; }
+    .dis-opt-desc  { font-size: 12px; color: #7a8a9b; margin-top: 3px; }
+    .modal-ftr {
+      padding: 14px 22px;
+      border-top: 1px solid #edf1f7;
+      display: flex; justify-content: flex-end; gap: 10px;
+    }
+    .modal-cancel {
+      padding: 8px 16px; background: #f1f5f9; color: #475569;
+      border: none; border-radius: 5px;
+      font-size: 13px; font-weight: 500; cursor: pointer;
+    }
+    .modal-cancel:hover { background: #e2e8f0; }
+    .modal-confirm {
+      padding: 8px 18px; background: #c0392b; color: white;
+      border: none; border-radius: 5px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .modal-confirm:hover { background: #e74c3c; }
+  </style>
+</head>
+<body>
+
+<!-- SUCCESS BANNER -->
+<div id="successBanner">
+  <div class="check-icon">OK</div>
+  <span id="bannerText">Schedule committed — floor notified.</span>
+  <button class="dismiss-btn" onclick="dismissBanner()" aria-label="Dismiss">Dismiss</button>
+</div>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">RA</div>
+    <span class="header-title">RecoverAI</span>
+    <div class="header-divider"></div>
+    <span class="header-context">Production Floor · Bay 3 · Shift A</span>
+  </div>
+  <div class="header-right">
+    <div id="disruptionStatus">
+      <div class="pulse-dot"></div>
+      <span id="disruptionStatusText"></span>
+    </div>
+    <button class="btn btn-danger" id="logBtn" onclick="openModal()">Log Disruption</button>
+  </div>
+</header>
+
+<!-- MAIN -->
+<div class="main" id="mainWrap">
+
+  <!-- Resource Status Bar -->
+  <div class="resource-bar">
+    <span class="res-label">Resources</span>
+    <div class="res-pill online" id="res-cnc1">
+      <div class="res-dot"></div>CNC Machine 1
+    </div>
+    <div class="res-pill online" id="res-cnc2">
+      <div class="res-dot"></div>CNC Machine 2
+    </div>
+    <div class="res-pill online">
+      <div class="res-dot"></div>Test Station 1
+    </div>
+    <div class="res-pill online">
+      <div class="res-dot"></div>Test Station 2
+    </div>
+    <div class="res-pill online">
+      <div class="res-dot"></div>Pack &amp; Ship
+      <span class="no-redundancy">No Redundancy</span>
+    </div>
+  </div>
+
+  <!-- Job Table -->
+  <div class="table-card">
+    <div class="table-card-hdr">
+      <span class="table-card-title">Active Job Queue</span>
+      <span class="table-card-meta" id="tableMeta">8 jobs &nbsp;·&nbsp; Last updated 08:42</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Job ID</th>
+          <th>Part Name</th>
+          <th>Priority</th>
+          <th>Deadline</th>
+          <th>Stage</th>
+          <th>Assigned</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="jobBody"></tbody>
+    </table>
+  </div>
+
+</div><!-- /main -->
+
+<!-- RECOVERY PANEL (right drawer) -->
+<div id="recoveryPanel">
+  <div class="panel-card">
+    <div class="panel-card-hdr">
+      <span class="panel-card-title">AI Recovery Analysis</span>
+      <span class="badge p-critical" style="font-size:10px;">Action Required</span>
+    </div>
+    <div class="ai-summary">
+      <div class="ai-tag">AI Reasoning</div>
+      <div class="ai-text" id="aiText"></div>
+    </div>
+    <div class="diff-wrap">
+      <table class="diff-tbl">
+        <thead><tr><th>Job</th><th>Part</th><th>Change</th><th>Status</th></tr></thead>
+        <tbody id="diffBody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div id="bottleneckSlot"></div>
+  <div class="panel-card">
+    <div style="padding:14px;">
+      <div class="action-hint">Planner review required. Changes do not take effect on the floor until you explicitly commit.</div>
+      <div class="action-row">
+        <button class="act-accept" onclick="acceptSchedule()">Accept Schedule</button>
+        <button class="act-modify" onclick="modifyClicked()">Modify</button>
+        <button class="act-dismiss" onclick="dismissPanel()">Dismiss</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DISRUPTION MODAL -->
+<div id="modalOverlay" class="hidden">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">Log Disruption</div>
+      <div class="modal-subtitle">Select the disruption type to generate an AI recovery plan.</div>
+    </div>
+    <div class="modal-body">
+      <div class="dis-opt selected" id="opt-cnc1" onclick="selectOpt('cnc1')">
+        <div class="dis-opt-title">CNC Machine 1 — Unplanned Downtime</div>
+        <div class="dis-opt-desc">Machine offline — estimated recovery unknown. Affects all jobs currently assigned to CNC Machine 1.</div>
+      </div>
+      <div class="dis-opt" id="opt-material" onclick="selectOpt('material')">
+        <div class="dis-opt-title">Delayed Material Delivery — WO-1045</div>
+        <div class="dis-opt-desc">Raw material shipment delayed. Inertial Nav Frame manufacturing cannot begin as scheduled.</div>
+      </div>
+      <div class="dis-opt" id="opt-qc" onclick="selectOpt('qc')">
+        <div class="dis-opt-title">QC Test Failure — WO-1047</div>
+        <div class="dis-opt-desc">Torque Arm failed quality inspection and has been returned to the manufacturing queue for rework.</div>
+      </div>
+    </div>
+    <div class="modal-ftr">
+      <button class="modal-cancel" onclick="closeModal()">Cancel</button>
+      <button class="modal-confirm" onclick="confirmDisruption()">Confirm Disruption</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── STATE ──────────────────────────────────────────────────────────────────
+  let appState = 1;
+  let selectedOpt = 'cnc1';
+  let activeScenario = null;
+
+  // ── JOB DATA ───────────────────────────────────────────────────────────────
+  const JOBS = [
+    { id:'WO-1042', part:'Actuator Housing',    pri:'Critical', deadline:'Apr 10', stage:'Manufacturing', machine:'CNC 1',          status:'At Risk'  },
+    { id:'WO-1043', part:'Guidance Bracket',     pri:'High',     deadline:'Apr 12', stage:'Manufacturing', machine:'CNC 1',          status:'On Track' },
+    { id:'WO-1044', part:'Servo Mount Plate',    pri:'Standard', deadline:'Apr 15', stage:'Testing',       machine:'Test Station 1', status:'On Track' },
+    { id:'WO-1045', part:'Inertial Nav Frame',   pri:'High',     deadline:'Apr 14', stage:'Manufacturing', machine:'CNC 1',          status:'On Track' },
+    { id:'WO-1046', part:'Gimbal Ring Assembly', pri:'Critical', deadline:'Apr 15', stage:'Testing',       machine:'Test Station 2', status:'On Track' },
+    { id:'WO-1047', part:'Torque Arm',           pri:'High',     deadline:'Apr 15', stage:'Testing',       machine:'Test Station 1', status:'On Track' },
+    { id:'WO-1048', part:'Pressure Valve Block', pri:'Standard', deadline:'Apr 16', stage:'Pack & Ship',   machine:'Pack & Ship',   status:'On Track' },
+    { id:'WO-1049', part:'Pivot Housing',        pri:'Standard', deadline:'Apr 17', stage:'Queue',         machine:'—',             status:'On Track' },
+  ];
+
+  // ── SCENARIOS ──────────────────────────────────────────────────────────────
+  const SCENARIOS = {
+    cnc1: {
+      headerStatus: 'CNC Machine 1 — Offline',
+      resourceOffline: 'res-cnc1',
+      resourceLabel: 'CNC Machine 1',
+      affected: new Set(['WO-1042','WO-1043','WO-1045','WO-1049']),
+      // How affected jobs look in the table during state 2
+      disrupted: {
+        'WO-1042': { machineHtml: '<span class="machine-offline">CNC 1 ↓</span>' },
+        'WO-1043': { machineHtml: '<span class="machine-offline">CNC 1 ↓</span>' },
+        'WO-1045': { machineHtml: '<span class="machine-offline">CNC 1 ↓</span>' },
+      },
+      aiSummary: 'CNC Machine 1 is offline. <strong>4 jobs affected.</strong> Suggested recovery re-sequences to CNC Machine 2 where capacity allows. <strong>2 jobs flagged at deadline risk.</strong> Pack &amp; Ship bottleneck risk detected — 3 jobs converging on Apr 15.',
+      diffRows: [
+        { id:'WO-1042', part:'Actuator Housing',  was:'CNC 1', now:'CNC 2',   reason:'Scheduled first on CNC 2 — Critical priority, deadline Apr 10 (3 days). Immediate start required.', risk:false, badge:'s-atrisk',  badgeText:'At Risk'  },
+        { id:'WO-1043', part:'Guidance Bracket',   was:'CNC 1', now:'CNC 2',   reason:'Moved earlier in queue — High priority, deadline Apr 12. Earliest available slot on CNC 2 after WO-1042.', risk:false, badge:'s-ontrack', badgeText:'On Track' },
+        { id:'WO-1045', part:'Inertial Nav Frame', was:'CNC 1', now:'CNC 2',   reason:'WARNING:At risk — CNC 2 queue constrained after WO-1042 and WO-1043. Apr 14 deadline may require overtime to meet.', risk:true, badge:'s-atrisk',  badgeText:'At Risk'  },
+        { id:'WO-1049', part:'Pivot Housing',      was:'Queue',  now:'On Hold', reason:'WARNING:No CNC capacity available — CNC 2 full through Apr 14. Standard priority; held until CNC 1 recovery or supervisor escalation.', risk:true, badge:'s-held', badgeText:'Held' },
+      ],
+      bottleneck: {
+        title: 'Pack &amp; Ship Bottleneck Risk — Apr 15',
+        subtitle: 'Single point of failure · No redundancy',
+        text: 'WO-1044, WO-1046, and WO-1047 are all scheduled to complete testing within a 24-hour window converging on Apr 15. All three will queue for Pack &amp; Ship simultaneously — the single station on this floor with no backup capacity.',
+        note: 'Review sequencing to stagger Pack &amp; Ship arrivals, or flag for supervisor review before committing.',
+      },
+      committed: {
+        'WO-1042': { machine:'CNC 2',  status:'At Risk'  },
+        'WO-1043': { machine:'CNC 2',  status:'On Track' },
+        'WO-1045': { machine:'CNC 2',  status:'At Risk'  },
+        'WO-1049': { machine:'—',      status:'At Risk'  },
+      },
+      committedMeta: '8 jobs \u00a0·\u00a0 Recovery committed 09:14 \u00a0·\u00a0 CNC 2 workaround active',
+      committedResourceHtml: '<div class="res-dot"></div>CNC Machine 1 <span style="font-size:11px;color:#e88;margin-left:4px;">(Offline · Workaround Active)</span>',
+      bannerText: 'Schedule committed — floor notified. CNC Machine 2 re-sequenced to cover affected jobs. Recovery plan active.',
+    },
+
+    material: {
+      headerStatus: 'Material Delay — WO-1045',
+      resourceOffline: null,
+      affected: new Set(['WO-1045','WO-1049']),
+      disrupted: {
+        'WO-1045': { machineHtml: '<span class="machine-offline">CNC 1 ⏸</span>' },
+      },
+      aiSummary: 'Material delivery for WO-1045 (Inertial Nav Frame) is delayed. <strong>1 job directly impacted</strong> — moved to hold pending material arrival. WO-1049 pulled forward from queue to CNC 1 to utilize freed capacity. Pack &amp; Ship bottleneck risk remains — 3 jobs converging on Apr 15.',
+      diffRows: [
+        { id:'WO-1045', part:'Inertial Nav Frame', was:'CNC 1',  now:'On Hold', reason:'WARNING:Material delivery delayed — manufacturing cannot proceed. Held pending arrival. Apr 14 deadline at risk.', risk:true, badge:'s-held', badgeText:'Held' },
+        { id:'WO-1049', part:'Pivot Housing',       was:'Queue',  now:'CNC 1',   reason:'Pulled forward to CNC 1 — fills gap left by WO-1045 hold. Standard priority, deadline Apr 17 remains achievable.', risk:false, badge:'s-ontrack', badgeText:'On Track' },
+      ],
+      bottleneck: {
+        title: 'Pack &amp; Ship Bottleneck Risk — Apr 15',
+        subtitle: 'Single point of failure · No redundancy',
+        text: 'WO-1044, WO-1046, and WO-1047 are all scheduled to complete testing within a 24-hour window converging on Apr 15. All three will queue for Pack &amp; Ship simultaneously — the single station on this floor with no backup capacity.',
+        note: 'Review sequencing to stagger Pack &amp; Ship arrivals, or flag for supervisor review before committing.',
+      },
+      committed: {
+        'WO-1045': { machine:'—', status:'At Risk', stage:'On Hold' },
+        'WO-1049': { machine:'CNC 1', status:'On Track' },
+      },
+      committedMeta: '8 jobs \u00a0·\u00a0 Recovery committed 09:14 \u00a0·\u00a0 WO-1045 on hold, queue re-sequenced',
+      committedResourceHtml: null,
+      bannerText: 'Schedule committed — floor notified. WO-1045 on hold pending material delivery. WO-1049 moved forward on CNC 1.',
+    },
+
+    qc: {
+      headerStatus: 'QC Failure — WO-1047 Rework Required',
+      resourceOffline: null,
+      affected: new Set(['WO-1047']),
+      disrupted: {
+        'WO-1047': { machineHtml: '<span class="machine-offline">Test Stn 1 [FAIL]</span>' },
+      },
+      aiSummary: 'WO-1047 (Torque Arm) failed QC testing and requires manufacturing rework. <strong>1 job affected.</strong> Assigned to CNC 2 for earliest available rework slot. <strong>Apr 15 deadline now at risk</strong> — rework adds estimated 2-day delay. Pack &amp; Ship bottleneck partially relieved — 2 jobs converging instead of 3.',
+      diffRows: [
+        { id:'WO-1047', part:'Torque Arm', was:'Test Station 1', now:'CNC 2 (Rework)', reason:'WARNING:QC failure — returned to manufacturing for rework. Assigned to CNC 2, earliest available slot. Apr 15 deadline at risk; estimated 2-day delay.', risk:true, badge:'s-atrisk', badgeText:'At Risk' },
+      ],
+      bottleneck: {
+        title: 'Pack &amp; Ship Convergence — Apr 15 (Revised)',
+        subtitle: 'Bottleneck partially relieved',
+        text: 'WO-1047 rework delays its arrival at Pack &amp; Ship, reducing the original 3-job pileup to 2 (WO-1044, WO-1046). Risk is lower but WO-1048 is already at Pack &amp; Ship — monitor if WO-1047 rework completes faster than estimated.',
+        note: 'WO-1047 will arrive at Pack &amp; Ship later than originally scheduled. Verify updated timeline after rework completes.',
+      },
+      committed: {
+        'WO-1047': { machine:'CNC 2', status:'At Risk', stage:'Mfg (Rework)' },
+      },
+      committedMeta: '8 jobs \u00a0·\u00a0 Recovery committed 09:14 \u00a0·\u00a0 WO-1047 rework assigned to CNC 2',
+      committedResourceHtml: null,
+      bannerText: 'Schedule committed — floor notified. WO-1047 rework assigned to CNC 2. QC team notified for re-inspection.',
+    },
+  };
+
+  // ── RENDER TABLE ───────────────────────────────────────────────────────────
+  function renderTable() {
+    const tbody = document.getElementById('jobBody');
+    tbody.innerHTML = '';
+    const sc = activeScenario;
+
+    JOBS.forEach(job => {
+      const tr = document.createElement('tr');
+      const isAffected = sc && sc.affected.has(job.id);
+
+      let machine = job.machine;
+      let status  = job.status;
+      let stage   = job.stage;
+
+      // State 4: apply committed overrides
+      if (appState === 4 && sc && sc.committed[job.id]) {
+        const c = sc.committed[job.id];
+        machine = c.machine;
+        status  = c.status;
+        if (c.stage) stage = c.stage;
+      }
+
+      // Row highlight
+      if ((appState === 2 || appState === 3) && isAffected) tr.className = 'row-affected';
+      if (appState === 4 && isAffected) tr.className = 'row-committed';
+
+      // Machine cell
+      let machineCell;
+      if ((appState === 2 || appState === 3) && sc && sc.disrupted[job.id]) {
+        machineCell = sc.disrupted[job.id].machineHtml;
+      } else {
+        machineCell = '<span style="font-size:12px;color:#5a6a7d;">' + machine + '</span>';
+      }
+
+      const dlClass = job.deadline === 'Apr 10' ? 'deadline-urgent' : '';
+
+      tr.innerHTML =
+        '<td><span class="job-id">' + job.id + '</span></td>' +
+        '<td>' + job.part + '</td>' +
+        '<td>' + priBadge(job.pri) + '</td>' +
+        '<td><span class="' + dlClass + '" style="font-size:13px;">' + job.deadline + '</span></td>' +
+        '<td style="font-size:12px;color:#5a6a7d;">' + stage + '</td>' +
+        '<td>' + machineCell + '</td>' +
+        '<td>' + statusBadge(status) + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  function priBadge(p) {
+    if (p === 'Critical') return '<span class="badge p-critical">' + p + '</span>';
+    if (p === 'High')     return '<span class="badge p-high">' + p + '</span>';
+    return '<span class="badge p-standard">' + p + '</span>';
+  }
+
+  function statusBadge(s) {
+    if (s === 'On Track') return '<span class="badge s-ontrack">' + s + '</span>';
+    if (s === 'At Risk')  return '<span class="badge s-atrisk">' + s + '</span>';
+    return '<span class="badge s-held">' + s + '</span>';
+  }
+
+  // ── RENDER RECOVERY PANEL CONTENT ──────────────────────────────────────────
+  function renderPanel(sc) {
+    // AI summary
+    document.getElementById('aiText').innerHTML = sc.aiSummary;
+
+    // Diff rows
+    const diffBody = document.getElementById('diffBody');
+    diffBody.innerHTML = '';
+    sc.diffRows.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.className = row.risk ? 'changed risk' : 'changed';
+      tr.innerHTML =
+        '<td><span class="job-id">' + row.id + '</span></td>' +
+        '<td style="font-size:12px;">' + row.part + '</td>' +
+        '<td>' +
+          '<div><span class="was">' + row.was + '</span><span class="arr"> → </span><span class="now">' + row.now + '</span></div>' +
+          '<div class="reason' + (row.risk ? ' risk-text' : '') + '">' + row.reason + '</div>' +
+        '</td>' +
+        '<td><span class="badge ' + row.badge + '" style="font-size:10px;">' + row.badgeText + '</span></td>';
+      diffBody.appendChild(tr);
+    });
+
+    // Bottleneck card
+    const slot = document.getElementById('bottleneckSlot');
+    const b = sc.bottleneck;
+    slot.innerHTML =
+      '<div class="bottleneck-card">' +
+        '<div class="bottleneck-hdr">' +
+          '<span class="btl-icon" style="font-weight:900;color:#92400e;font-size:14px;">!!</span>' +
+          '<div>' +
+            '<div class="btl-title">' + b.title + '</div>' +
+            '<div class="btl-subtitle">' + b.subtitle + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="bottleneck-body">' +
+          '<p class="btl-text">' + b.text + '</p>' +
+          '<div class="btl-note">' + b.note + '</div>' +
+          '<div class="no-redundancy-warning">' +
+            'NOTICE: Pack &amp; Ship has no redundancy — any delay here propagates to all downstream delivery dates' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  // ── MODAL ──────────────────────────────────────────────────────────────────
+  function openModal() {
+    if (appState !== 1) return;
+    document.getElementById('modalOverlay').classList.remove('hidden');
+  }
+
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.add('hidden');
+  }
+
+  function selectOpt(opt) {
+    selectedOpt = opt;
+    document.querySelectorAll('.dis-opt').forEach(function(el) { el.classList.remove('selected'); });
+    document.getElementById('opt-' + opt).classList.add('selected');
+  }
+
+  function confirmDisruption() {
+    closeModal();
+    triggerDisruption();
+  }
+
+  // ── STATE 2: DISRUPTION ────────────────────────────────────────────────────
+  function triggerDisruption() {
+    appState = 2;
+    activeScenario = SCENARIOS[selectedOpt];
+    var sc = activeScenario;
+
+    // Resource bar: take machine offline if applicable
+    if (sc.resourceOffline) {
+      var pill = document.getElementById(sc.resourceOffline);
+      pill.classList.replace('online', 'offline');
+      pill.innerHTML = '<div class="res-dot"></div>' + sc.resourceLabel +
+        ' <span style="font-size:11px;color:#e88;margin-left:4px;">(Offline)</span>';
+    }
+
+    // Header disruption indicator
+    document.getElementById('disruptionStatusText').textContent = sc.headerStatus;
+    document.getElementById('disruptionStatus').classList.add('visible');
+
+    // Table with affected rows highlighted
+    renderTable();
+
+    // Build panel content, then open after a brief pause
+    renderPanel(sc);
+    setTimeout(function() { openRecoveryPanel(); }, 750);
+  }
+
+  // ── STATE 3: RECOVERY PANEL ────────────────────────────────────────────────
+  function openRecoveryPanel() {
+    appState = 3;
+    document.getElementById('recoveryPanel').classList.add('open');
+    document.getElementById('mainWrap').classList.add('panel-open');
+  }
+
+  // ── STATE 4: ACCEPT ────────────────────────────────────────────────────────
+  function acceptSchedule() {
+    appState = 4;
+    var sc = activeScenario;
+
+    // Close panel
+    document.getElementById('recoveryPanel').classList.remove('open');
+    document.getElementById('mainWrap').classList.remove('panel-open');
+
+    // Update table with committed state
+    renderTable();
+    document.getElementById('tableMeta').textContent = sc.committedMeta;
+
+    // Update resource label if applicable
+    if (sc.committedResourceHtml && sc.resourceOffline) {
+      document.getElementById(sc.resourceOffline).innerHTML = sc.committedResourceHtml;
+    }
+
+    // Success banner
+    document.getElementById('bannerText').textContent = sc.bannerText;
+    var banner = document.getElementById('successBanner');
+    banner.classList.add('visible');
+    setTimeout(function() { banner.classList.remove('visible'); }, 7000);
+  }
+
+  // ── DISMISS / MODIFY / BANNER ──────────────────────────────────────────────
+  function dismissPanel() {
+    document.getElementById('recoveryPanel').classList.remove('open');
+    document.getElementById('mainWrap').classList.remove('panel-open');
+    appState = 2;
+  }
+
+  function dismissBanner() {
+    document.getElementById('successBanner').classList.remove('visible');
+  }
+
+  function modifyClicked() {
+    alert('In the full product, the planner can drag-and-drop to adjust the suggested sequence before committing.\n\n(Drag-and-drop editor not implemented in this prototype.)');
+  }
+
+  // ── INIT ───────────────────────────────────────────────────────────────────
+  renderTable();
+</script>
+</body>
+</html>
